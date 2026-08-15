@@ -3,7 +3,7 @@ import { supabase, BUCKET } from "./supabase";
 import {
   Plus, Trash2, Edit3, X, Camera, ArrowLeft, Eye,
   Share2, Package, Check, Copy, Phone, ChevronLeft,
-  ChevronRight, Lock, Loader2, AlertCircle
+  ChevronRight, Lock, Loader2, AlertCircle, QrCode
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════
@@ -41,6 +41,11 @@ const copyTxt = async (t) => {
     a.select(); document.execCommand("copy");
     document.body.removeChild(a);
   }
+};
+
+const navigate = (path) => {
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
 };
 
 /* ═══════════════════════════════════════════
@@ -140,17 +145,17 @@ function Viewer({ images, start = 0, onClose }) {
 }
 
 /* ═══════════════════════════════════════════
-   QR Code Modal
+   QR Code Modal (for catalog)
    ═══════════════════════════════════════════ */
 
-function QRModal({ product, onClose }) {
-  const url = `${window.location.origin}/p/${product.id}`;
+function QRModal({ onClose }) {
+  const url = `${window.location.origin}/shop`;
   const [ok, setOk] = useState(false);
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-40 p-6" onClick={onClose}>
       <div className="bg-white rounded-2xl p-6 max-w-xs w-full text-center shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <p className="font-semibold text-lg text-stone-900">{product.name}</p>
-        <p className="text-xs text-stone-400 mt-1 mb-4">客户扫码查看商品</p>
+        <p className="font-semibold text-lg text-stone-900">商品目录</p>
+        <p className="text-xs text-stone-400 mt-1 mb-4">客户扫码浏览全部商品</p>
         <img
           src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`}
           className="mx-auto rounded-lg" alt="QR" width={200} height={200}
@@ -483,7 +488,68 @@ function Form({ init, onSave, onCancel }) {
 }
 
 /* ═══════════════════════════════════════════
-   Customer Page (fetches product by ID)
+   Customer Catalog (all products)
+   ═══════════════════════════════════════════ */
+
+function Catalog() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAll()
+      .then((d) => { setProducts(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen text-stone-400 gap-3">
+        <Loader2 size={28} className="animate-spin" />
+        <p className="text-sm">加载中...</p>
+      </div>
+    );
+  }
+
+  if (products.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen text-stone-400 gap-3 px-6 text-center">
+        <Package size={36} />
+        <p className="text-base font-medium text-stone-600">暂无商品</p>
+        <p className="text-sm">商家还没有上架商品</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white">
+      <div className="px-4 pt-6 pb-3">
+        <h1 className="text-xl font-bold text-stone-900">全部商品</h1>
+        <p className="text-xs text-stone-400 mt-1">{products.length} 款在售</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3 px-4 pb-10">
+        {products.map((p) => {
+          const thumb = p.colors?.[0]?.images?.[0];
+          const colorCount = p.colors?.length || 0;
+          return (
+            <div key={p.id} onClick={() => navigate(`/p/${p.id}`)}
+              className="cursor-pointer active:opacity-80 transition-opacity">
+              <div className="aspect-square rounded-xl bg-stone-100 overflow-hidden">
+                {thumb
+                  ? <img src={thumb} className="w-full h-full object-cover" alt={p.name} />
+                  : <div className="w-full h-full flex items-center justify-center text-stone-300"><Camera size={28} /></div>}
+              </div>
+              <p className="mt-2 text-sm font-medium text-stone-900 truncate">{p.name || "未命名"}</p>
+              {colorCount > 0 && <p className="text-xs text-stone-400">{colorCount} 个配色</p>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Customer Product Page (from catalog)
    ═══════════════════════════════════════════ */
 
 function CustomerPage({ productId }) {
@@ -514,11 +580,12 @@ function CustomerPage({ productId }) {
         <AlertCircle size={36} />
         <p className="text-base font-medium text-stone-600">商品未找到</p>
         <p className="text-sm">该商品可能已下架或链接有误</p>
+        <button onClick={() => navigate("/shop")} className="mt-2 text-sm text-stone-500 underline">返回商品列表</button>
       </div>
     );
   }
 
-  return <Display product={product} />;
+  return <Display product={product} onBack={() => navigate("/shop")} />;
 }
 
 /* ═══════════════════════════════════════════
@@ -534,9 +601,8 @@ function AdminPage() {
   const [view, setView] = useState("list");
   const [editing, setEditing] = useState(null);
   const [previewing, setPreviewing] = useState(null);
-  const [qr, setQr] = useState(null);
+  const [showQR, setShowQR] = useState(false);
 
-  // Check session storage for saved auth
   useEffect(() => {
     if (ADMIN_PWD && sessionStorage.getItem("shoe-admin-auth") === "1") {
       setAuthed(true);
@@ -624,7 +690,7 @@ function AdminPage() {
   return (
     <div className="min-h-screen bg-stone-50">
       <div className="max-w-lg mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <h1 className="text-xl font-bold text-stone-900 flex items-center gap-2">
             <Package size={22} /> 商品管理
           </h1>
@@ -637,6 +703,14 @@ function AdminPage() {
             <Plus size={16} /> 添加商品
           </button>
         </div>
+
+        {/* Master QR button */}
+        {products.length > 0 && (
+          <button onClick={() => setShowQR(true)}
+            className="w-full mb-5 py-3 rounded-xl bg-white border border-stone-200 text-sm font-medium text-stone-700 flex items-center justify-center gap-2 active:bg-stone-50 shadow-sm">
+            <QrCode size={18} /> 生成商品目录二维码
+          </button>
+        )}
 
         {products.length === 0 && (
           <div className="text-center py-24">
@@ -674,10 +748,6 @@ function AdminPage() {
                         className="text-xs px-2.5 py-1 rounded-lg bg-stone-100 text-stone-600 flex items-center gap-1 active:bg-stone-200">
                         <Edit3 size={12} /> 编辑
                       </button>
-                      <button onClick={() => setQr(p)}
-                        className="text-xs px-2.5 py-1 rounded-lg bg-stone-100 text-stone-600 flex items-center gap-1 active:bg-stone-200">
-                        <Share2 size={12} /> 二维码
-                      </button>
                       <button onClick={async () => {
                         if (!confirm("确定删除？图片也会一并删除")) return;
                         try { await removeProduct(p); reload(); }
@@ -693,15 +763,9 @@ function AdminPage() {
             );
           })}
         </div>
-
-        {products.length > 0 && (
-          <p className="text-center text-xs text-stone-300 mt-8">
-            点击「二维码」生成商品分享码，客户扫码即可查看
-          </p>
-        )}
       </div>
 
-      {qr && <QRModal product={qr} onClose={() => setQr(null)} />}
+      {showQR && <QRModal onClose={() => setShowQR(false)} />}
     </div>
   );
 }
@@ -719,7 +783,12 @@ export default function App() {
     return () => window.removeEventListener("popstate", handler);
   }, []);
 
-  // Customer route: /p/PRODUCT_ID
+  // Customer catalog: /shop
+  if (path === "/shop") {
+    return <Catalog />;
+  }
+
+  // Customer product detail: /p/PRODUCT_ID
   const match = path.match(/^\/p\/(.+)$/);
   if (match) {
     return <CustomerPage productId={match[1]} />;
